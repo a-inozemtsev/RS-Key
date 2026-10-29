@@ -65,6 +65,8 @@ struct BoardConfig {
     kvmain_kb: Option<u32>,
     // display
     display_spi_freq_hz: Option<u32>,
+    display_clk: Option<u8>,
+    display_mosi: Option<u8>,
     display_cs: Option<u8>,
     display_dc: Option<u8>,
     display_rst: Option<u8>,
@@ -108,6 +110,8 @@ fn parse_toml(raw: &str) -> BoardConfig {
         flash_size_mb: None,
         kvmain_kb: None,
         display_spi_freq_hz: None,
+        display_clk: None,
+        display_mosi: None,
         display_cs: None,
         display_dc: None,
         display_rst: None,
@@ -201,6 +205,8 @@ fn parse_toml(raw: &str) -> BoardConfig {
             ("flash", "size_mb") => c.flash_size_mb = Some(u32(v)),
             ("flash", "kvmain_kb") => c.kvmain_kb = Some(u32(v)),
             ("display", "spi_freq_hz") => c.display_spi_freq_hz = Some(u32(v)),
+            ("display", "clk") => c.display_clk = Some(u8(v)),
+            ("display", "mosi") => c.display_mosi = Some(u8(v)),
             ("display", "cs") => c.display_cs = Some(u8(v)),
             ("display", "dc") => c.display_dc = Some(u8(v)),
             ("display", "rst") => c.display_rst = Some(u8(v)),
@@ -493,6 +499,16 @@ fn main() {
             .and_then(|b| b.display_spi_freq_hz)
             .unwrap_or(80_000_000)
     );
+    // The PIO serial link's clock and data pins. Defaults are the Touch-LCD-2.8 wiring;
+    // `main.rs` accepts only the (clk, mosi) pairs it has a typed pin arm for.
+    disp_pin!(
+        "PK_DISPLAY_CLK",
+        disp_cfg.and_then(|b| b.display_clk).unwrap_or(10)
+    );
+    disp_pin!(
+        "PK_DISPLAY_MOSI",
+        disp_cfg.and_then(|b| b.display_mosi).unwrap_or(11)
+    );
     disp_pin!(
         "PK_DISPLAY_CS",
         disp_cfg.and_then(|b| b.display_cs).unwrap_or(13)
@@ -559,6 +575,8 @@ fn main() {
     // lets `env!("PK_DISPLAY_*")` go stale and bake the wrong pins into the
     // firmware image — re-rustc on any of them.
     println!("cargo:rerun-if-env-changed=PK_DISPLAY_SPI_FREQ_HZ");
+    println!("cargo:rerun-if-env-changed=PK_DISPLAY_CLK");
+    println!("cargo:rerun-if-env-changed=PK_DISPLAY_MOSI");
     println!("cargo:rerun-if-env-changed=PK_DISPLAY_CS");
     println!("cargo:rerun-if-env-changed=PK_DISPLAY_DC");
     println!("cargo:rerun-if-env-changed=PK_DISPLAY_RST");

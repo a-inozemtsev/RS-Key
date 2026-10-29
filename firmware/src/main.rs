@@ -231,6 +231,17 @@ const _: () = assert!(
      per two cycles, and any other ratio needs a divider the transport does not set"
 );
 #[cfg(feature = "display")]
+const BUILD_DISPLAY_CLK: u8 = env_u16(env!("PK_DISPLAY_CLK")) as u8;
+#[cfg(feature = "display")]
+const BUILD_DISPLAY_MOSI: u8 = env_u16(env!("PK_DISPLAY_MOSI")) as u8;
+// The PIO transport takes typed pins, so only the (clk, mosi) pairs with an arm in the
+// `PioDisplayTx::new` match below can be built. Add an arm there, then list it here.
+#[cfg(feature = "display")]
+const _: () = assert!(
+    matches!((BUILD_DISPLAY_CLK, BUILD_DISPLAY_MOSI), (10, 11) | (18, 19)),
+    "unsupported display PIO pins (CLK, MOSI) — see the PioDisplayTx::new match in main.rs"
+);
+#[cfg(feature = "display")]
 const BUILD_DISPLAY_CS: u8 = env_u16(env!("PK_DISPLAY_CS")) as u8;
 #[cfg(feature = "display")]
 const BUILD_DISPLAY_DC: u8 = env_u16(env!("PK_DISPLAY_DC")) as u8;
@@ -252,7 +263,7 @@ pub(crate) const BUILD_DISPLAY_INVERT_COLORS: bool = env_u16(env!("PK_DISPLAY_IN
 pub(crate) const BUILD_DISPLAY_COLOR_ORDER: u8 = env_u16(env!("PK_DISPLAY_COLOR_ORDER")) as u8;
 
 // Display control GPIOs are board-configurable and claimed via AnyPin::steal
-// (CS/DC/RST/TP_RST) or Pwm::new_output_* (BL); PIO owns 10/11 and I2C1 owns 6/7.
+// (CS/DC/RST/TP_RST) or Pwm::new_output_* (BL); PIO owns CLK/MOSI (10/11 by default) and I2C1 owns 6/7.
 // Reject a pad owned by two drivers at compile time (no runtime guard).
 #[cfg(feature = "display")]
 const _: () = {
@@ -263,8 +274,8 @@ const _: () = {
         BUILD_DISPLAY_TP_RST,
         BUILD_DISPLAY_BL_PIN,
     ];
-    // Pins the panel's hard-wired PIO serial link (10/11) and I2C1 (6/7) own.
-    const HW_PINS: &[u8] = &[10, 11, 6, 7];
+    // Pins the panel's PIO serial link (CLK/MOSI) and the hard-wired I2C1 (6/7) own.
+    const HW_PINS: &[u8] = &[BUILD_DISPLAY_CLK, BUILD_DISPLAY_MOSI, 6, 7];
 
     const fn contains(hay: &[u8], needle: u8) -> bool {
         let mut i = 0;
@@ -291,7 +302,7 @@ const _: () = {
     while i < DISPLAY_CTLS.len() {
         assert!(
             !contains(HW_PINS, DISPLAY_CTLS[i]),
-            "panel control GPIO overlaps hard-wired PIO/I2C1 pin 6/7/10/11"
+            "panel control GPIO overlaps the PIO CLK/MOSI pins or the hard-wired I2C1 pins 6/7"
         );
         i += 1;
     }
@@ -1040,15 +1051,30 @@ async fn main(spawner: Spawner) {
         let Pio {
             mut common, sm0, ..
         } = Pio::new(p.PIO0, Irqs);
-        let spi = display::PioDisplayTx::new(
-            &mut common,
-            sm0,
-            p.PIN_10,
-            p.PIN_11,
-            p.DMA_CH0,
-            Irqs,
-            BUILD_DISPLAY_SPI_FREQ_HZ,
-        );
+        macro_rules! pio_tx {
+            ($clk:expr, $mosi:expr) => {
+                display::PioDisplayTx::new(
+                    &mut common,
+                    sm0,
+                    $clk,
+                    $mosi,
+                    p.DMA_CH0,
+                    Irqs,
+                    BUILD_DISPLAY_SPI_FREQ_HZ,
+                )
+            };
+        }
+        // GPIO18/19 can be the PIO pair or the backlight pad, never both (the collision
+        // assert above), but the borrow checker cannot see that across two matches, so
+        // each pad is handed out through an `Option` taken by whichever one needs it.
+        let mut pin18 = Some(p.PIN_18);
+        let mut pin19 = Some(p.PIN_19);
+        let spi = match (BUILD_DISPLAY_CLK, BUILD_DISPLAY_MOSI) {
+            (10, 11) => pio_tx!(p.PIN_10, p.PIN_11),
+            (18, 19) => pio_tx!(pin18.take().unwrap(), pin19.take().unwrap()),
+            // Guarded by the const assert above — unreachable at runtime.
+            _ => unreachable!("unsupported display PIO pins"),
+        };
 
         let mut i2c_cfg = I2cConfig::default();
         i2c_cfg.frequency = BUILD_DISPLAY_I2C_FREQ_HZ;
@@ -1098,8 +1124,8 @@ async fn main(spawner: Spawner) {
             ) {
                 (16, 0, 0) => Pwm::new_output_a(p.PWM_SLICE0, p.PIN_16, cfg),
                 (17, 0, 1) => Pwm::new_output_b(p.PWM_SLICE0, p.PIN_17, cfg),
-                (18, 1, 0) => Pwm::new_output_a(p.PWM_SLICE1, p.PIN_18, cfg),
-                (19, 1, 1) => Pwm::new_output_b(p.PWM_SLICE1, p.PIN_19, cfg),
+                (18, 1, 0) => Pwm::new_output_a(p.PWM_SLICE1, pin18.take().unwrap(), cfg),
+                (19, 1, 1) => Pwm::new_output_b(p.PWM_SLICE1, pin19.take().unwrap(), cfg),
                 (20, 2, 0) => Pwm::new_output_a(p.PWM_SLICE2, p.PIN_20, cfg),
                 (21, 2, 1) => Pwm::new_output_b(p.PWM_SLICE2, p.PIN_21, cfg),
                 _ => {
