@@ -25,7 +25,13 @@ use embedded_graphics::{
 };
 use mipidsi::options::{ColorInversion, ColorOrder};
 
-const DIRECT_CHUNK_BYTES: usize = rsk_ui::PANEL_W as usize * 2;
+/// Visible columns, and the controller column the window starts at: a glass narrower
+/// than the controller's 240-column RAM (the 172-wide RP2350-LCD-1.47-A) sits
+/// `COL_OFFSET` columns in. Both come from the board file (`display.width`,
+/// `display.x_offset`); callers keep drawing in panel coordinates from 0.
+const PANEL_W: u16 = crate::BUILD_DISPLAY_WIDTH;
+const COL_OFFSET: u16 = crate::BUILD_DISPLAY_X_OFFSET;
+const DIRECT_CHUNK_BYTES: usize = PANEL_W as usize * 2;
 const SOLID_CHUNK_BYTES: usize = DIRECT_CHUNK_BYTES * 2;
 const PANEL_PIXEL_FORMAT_RGB565: u8 = 0x55;
 
@@ -126,7 +132,7 @@ pub(crate) struct Panel {
 
 impl OriginDimensions for Panel {
     fn size(&self) -> Size {
-        Size::new(rsk_ui::PANEL_W.into(), rsk_ui::PANEL_H.into())
+        Size::new(PANEL_W.into(), rsk_ui::PANEL_H.into())
     }
 }
 
@@ -198,15 +204,16 @@ impl Panel {
     }
 
     fn begin_window(&mut self, rect: rsk_ui::Rect) {
-        let right = rect.x + rect.w - 1;
+        let left = rect.x + COL_OFFSET;
+        let right = left + rect.w - 1;
         let bottom = rect.y + rect.h - 1;
         self.cs.set_low();
         self.dc.set_low();
         self.spi.blocking_write(&[0x2A]);
         self.dc.set_high();
         self.spi.blocking_write(&[
-            (rect.x >> 8) as u8,
-            rect.x as u8,
+            (left >> 8) as u8,
+            left as u8,
             (right >> 8) as u8,
             right as u8,
         ]);
@@ -337,7 +344,7 @@ impl DrawTarget for Panel {
         for Pixel(point, color) in pixels {
             if point.x < 0
                 || point.y < 0
-                || point.x >= i32::from(rsk_ui::PANEL_W)
+                || point.x >= i32::from(PANEL_W)
                 || point.y >= i32::from(rsk_ui::PANEL_H)
             {
                 continue;
@@ -373,11 +380,11 @@ impl DrawTarget for Panel {
         colors: I,
     ) -> Result<(), Self::Error> {
         self.tags_valid = false;
-        let left = area.top_left.x.max(0).min(i32::from(rsk_ui::PANEL_W));
+        let left = area.top_left.x.max(0).min(i32::from(PANEL_W));
         let top = area.top_left.y.max(0).min(i32::from(rsk_ui::PANEL_H));
         let right = (area.top_left.x + area.size.width as i32)
             .max(0)
-            .min(i32::from(rsk_ui::PANEL_W));
+            .min(i32::from(PANEL_W));
         let bottom = (area.top_left.y + area.size.height as i32)
             .max(0)
             .min(i32::from(rsk_ui::PANEL_H));
@@ -477,11 +484,11 @@ impl DrawTarget for Panel {
 
     fn fill_solid(&mut self, area: &Rectangle, color: Rgb565) -> Result<(), Self::Error> {
         self.tags_valid = false;
-        let left = area.top_left.x.max(0).min(i32::from(rsk_ui::PANEL_W));
+        let left = area.top_left.x.max(0).min(i32::from(PANEL_W));
         let top = area.top_left.y.max(0).min(i32::from(rsk_ui::PANEL_H));
         let right = (area.top_left.x + area.size.width as i32)
             .max(0)
-            .min(i32::from(rsk_ui::PANEL_W));
+            .min(i32::from(PANEL_W));
         let bottom = (area.top_left.y + area.size.height as i32)
             .max(0)
             .min(i32::from(rsk_ui::PANEL_H));

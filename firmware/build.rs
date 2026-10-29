@@ -67,6 +67,8 @@ struct BoardConfig {
     display_spi_freq_hz: Option<u32>,
     display_clk: Option<u8>,
     display_mosi: Option<u8>,
+    display_width: Option<u16>,
+    display_x_offset: Option<u16>,
     display_cs: Option<u8>,
     display_dc: Option<u8>,
     display_rst: Option<u8>,
@@ -112,6 +114,8 @@ fn parse_toml(raw: &str) -> BoardConfig {
         display_spi_freq_hz: None,
         display_clk: None,
         display_mosi: None,
+        display_width: None,
+        display_x_offset: None,
         display_cs: None,
         display_dc: None,
         display_rst: None,
@@ -151,6 +155,13 @@ fn parse_toml(raw: &str) -> BoardConfig {
         u32(s)
             .try_into()
             .unwrap_or_else(|_| panic!("value out of range for a byte-sized board key: {s}"))
+    }
+    fn u16(s: &str) -> u16 {
+        // Same reject-don't-truncate rule as `u8`: a typo must not wrap into a
+        // plausible panel size or window offset.
+        u32(s)
+            .try_into()
+            .unwrap_or_else(|_| panic!("value out of range for a 16-bit board key: {s}"))
     }
     fn u32(s: &str) -> u32 {
         let clean: String = u(s).chars().filter(|c| *c != '_').collect();
@@ -207,6 +218,8 @@ fn parse_toml(raw: &str) -> BoardConfig {
             ("display", "spi_freq_hz") => c.display_spi_freq_hz = Some(u32(v)),
             ("display", "clk") => c.display_clk = Some(u8(v)),
             ("display", "mosi") => c.display_mosi = Some(u8(v)),
+            ("display", "width") => c.display_width = Some(u16(v)),
+            ("display", "x_offset") => c.display_x_offset = Some(u16(v)),
             ("display", "cs") => c.display_cs = Some(u8(v)),
             ("display", "dc") => c.display_dc = Some(u8(v)),
             ("display", "rst") => c.display_rst = Some(u8(v)),
@@ -509,6 +522,20 @@ fn main() {
         "PK_DISPLAY_MOSI",
         disp_cfg.and_then(|b| b.display_mosi).unwrap_or(11)
     );
+    // The panel's visible width, and the column its window starts at. A 172-wide glass
+    // sits inside the controller's 240-column RAM, so the window has to be shifted by
+    // the unused columns (34 on the Waveshare RP2350-LCD-1.47-A). Defaults are the
+    // full-width Touch-LCD-2.8 panel.
+    {
+        let width = disp_cfg.and_then(|b| b.display_width).unwrap_or(240);
+        let x_offset = disp_cfg.and_then(|b| b.display_x_offset).unwrap_or(0);
+        assert!(
+            (1..=240).contains(&width) && u32::from(width) + u32::from(x_offset) <= 240,
+            "display.width + display.x_offset must fit the controller's 240 columns: {width} + {x_offset}"
+        );
+        disp!("PK_DISPLAY_WIDTH", width);
+        disp!("PK_DISPLAY_X_OFFSET", x_offset);
+    }
     disp_pin!(
         "PK_DISPLAY_CS",
         disp_cfg.and_then(|b| b.display_cs).unwrap_or(13)
@@ -577,6 +604,8 @@ fn main() {
     println!("cargo:rerun-if-env-changed=PK_DISPLAY_SPI_FREQ_HZ");
     println!("cargo:rerun-if-env-changed=PK_DISPLAY_CLK");
     println!("cargo:rerun-if-env-changed=PK_DISPLAY_MOSI");
+    println!("cargo:rerun-if-env-changed=PK_DISPLAY_WIDTH");
+    println!("cargo:rerun-if-env-changed=PK_DISPLAY_X_OFFSET");
     println!("cargo:rerun-if-env-changed=PK_DISPLAY_CS");
     println!("cargo:rerun-if-env-changed=PK_DISPLAY_DC");
     println!("cargo:rerun-if-env-changed=PK_DISPLAY_RST");

@@ -241,6 +241,19 @@ const _: () = assert!(
     matches!((BUILD_DISPLAY_CLK, BUILD_DISPLAY_MOSI), (10, 11) | (18, 19)),
     "unsupported display PIO pins (CLK, MOSI) — see the PioDisplayTx::new match in main.rs"
 );
+// The panel's visible width and the controller column it starts at (`display.width`,
+// `display.x_offset`). The full UI is laid out for exactly `rsk_ui::PANEL_W` columns,
+// so a narrower glass cannot run it — fail the build rather than paint off the edge.
+#[cfg(feature = "display")]
+pub(crate) const BUILD_DISPLAY_WIDTH: u16 = env_u16(env!("PK_DISPLAY_WIDTH"));
+#[cfg(feature = "display")]
+pub(crate) const BUILD_DISPLAY_X_OFFSET: u16 = env_u16(env!("PK_DISPLAY_X_OFFSET"));
+#[cfg(feature = "display")]
+const _: () = assert!(
+    BUILD_DISPLAY_WIDTH == rsk_ui::PANEL_W,
+    "display.width differs from the full UI's panel width: the touch UI is laid out for \
+     rsk_ui::PANEL_W columns (use the lcd-confirm build for a narrower panel)"
+);
 #[cfg(feature = "display")]
 const BUILD_DISPLAY_CS: u8 = env_u16(env!("PK_DISPLAY_CS")) as u8;
 #[cfg(feature = "display")]
