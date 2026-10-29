@@ -99,6 +99,9 @@ const ASK_CENSUS: &[(&str, usize, usize)] = &[
     // The default body's own forward, not a call site.
     ("crates/rsk-sdk/src/presence.rs", 0, 1),
     ("crates/rsk-vendor/src/lib.rs", 0, 1),
+    // `LcdPresence` paints the prompt, then forwards each ask unchanged to the button
+    // wait it wraps: a ceremony ask stays a ceremony ask, a per-signature ask stays one.
+    ("firmware/src/lcd_confirm.rs", 1, 1),
     ("firmware/src/worker.rs", 1, 0),
 ];
 

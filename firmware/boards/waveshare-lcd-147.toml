@@ -1,31 +1,28 @@
-# ЗАГОТОВКА (не собиралась и не проверялась на плате).
-# Положить в RS-Key: firmware/boards/waveshare-lcd-147.toml
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 RS-Key contributors
 #
-# Waveshare RP2350-LCD-1.47-A: ST7789V3 172x320 по SPI, без тачскрина.
-# Источники пинов: схема RP2350-LCD-1.47-A.pdf и демо RP2350-LCD-1.47.zip
-# (C/01-LCD/lib/Config/DEV_Config.h, Python/03-RGB/WS2812B.py), сверены между собой.
+# Waveshare RP2350-LCD-1.47-A: ST7789V3 172x320 over SPI, no touch controller.
 #
-# Карта пинов платы:
-#   LCD_DC   GPIO16     LCD_CS  GPIO17     LCD_CLK GPIO18    LCD_DIN(MOSI) GPIO19
-#   LCD_RST  GPIO20     LCD_BL  GPIO21     RGB_IO (WS2812) GPIO22
-#   SD: SCLK 10, MOSI 11, MISO 12, D1 13, D2 14, CS 15
-#   Key1 = BOOT (QSPI_SS), Key2 = RESET (RUN). Пользовательской кнопки нет.
+# The touch UI (`--features display`) is laid out for 240 columns and needs a finger, so it
+# does not build here. This board is the `lcd-confirm` build: the BOOT button stays the
+# presence source and the panel shows what the button approves.
 #
-# ВНИМАНИЕ: файл один не заработает. Ключи clk/mosi появились в ветке lcd147-pio-pins
-# (~/Projects/RS-Key); без неё прошивка жёстко берёт GPIO10/11. Остальные пункты
-# (размер 172x320, присутствие без тача, tp_rst) ещё не сделаны.
+#   BOARD=waveshare-lcd-147 cargo build --release -p firmware --features lcd-confirm
+#
+# Pins (schematic RP2350-LCD-1.47-A and the vendor demo's DEV_Config.h, which agree):
+#   LCD_DC 16   LCD_CS 17   LCD_CLK 18   LCD_DIN 19   LCD_RST 20   LCD_BL 21
+#   WS2812 22 (unused: the build is LED_KIND=none)   SD card 10..15 (unused)
+#   Key1 = BOOT (QSPI_SS, the presence button), Key2 = RESET.
 
 [usb]
 vidpid = "RSKey"
 
 [led]
-# WS2812 на GPIO22 занят отдельно от панели, конфликта с display-сборкой нет,
-# но display-сборка требует LED_KIND=none (проверка при компиляции).
+# The panel's PIO transport takes PIO0 and DMA_CH0, which the addressable-LED driver also
+# wants; the build refuses anything but `none` at compile time.
 kind = "none"
 
 [presence]
-# Тача нет. В display-сборке источник присутствия сейчас - тачскрин (main.rs ~1153),
-# нужна правка, чтобы подтверждение шло по BOOTSEL.
 source = "bootsel"
 
 [flash]
@@ -33,30 +30,22 @@ size_mb = 16
 kvmain_kb = 1408
 
 [display]
-# Должно быть ровно половиной системной частоты 160 МГц (проверка при компиляции),
-# поэтому 80 МГц. Это выше, чем в демо Waveshare (30 МГц) и выше паспортных значений
-# ST7789V3. Если картинка искажена, придётся менять тактирование, а не только это число.
+# Exactly half the 160 MHz system clock (checked at compile time): the PIO spends two
+# instructions per bit. That is above the vendor demo's 30 MHz and the ST7789V3 datasheet's
+# write cycle; if the picture tears or is noisy, the clock plan changes, not just this number.
 spi_freq_hz = 80_000_000
-# Видимая область 172 из 240 столбцов контроллера: окно сдвигается на 34 столбца.
-# Полный тач-UI рассчитан на 240, поэтому с этой платой он не соберётся (assert в main.rs);
-# нужна урезанная сборка lcd-confirm.
+# The 172-wide glass sits 34 columns into the controller's 240-column RAM.
 width = 172
 x_offset = 34
-# PIO-линия панели: GPIO18 (CLK) и GPIO19 (DIN).
+# PIO serial pair; the backlight is PWM slice 2, channel B.
 clk = 18
 mosi = 19
 cs = 17
 dc = 16
 rst = 20
-# Подсветка GPIO21 = PWM slice 2, канал B (комбинация (21, 2, B) есть в main.rs).
 bl_pin = 21
 bl_pwm_slice = 2
 bl_pwm_channel = "B"
-# Тача нет. Параметр обязателен для сборки и занимает пин как выход; указан свободный
-# GPIO без периферии на плате. Лучше сделать параметр необязательным в коде.
-tp_rst = 2
-# Кнопки пробуждения нет. В файле плат wake_pin - только число (u8), а по умолчанию 25.
-# Отключить можно переменной окружения при сборке: env WAKE_PIN=none (build.rs это поддерживает).
-# Демо шлёт команду 0x21 (инверсия включена) и MADCTL 0x00 (порядок RGB).
+# The vendor demo sends 0x21 (inversion on) and MADCTL 0x00 (RGB order).
 invert_colors = true
 color_order = "rgb"

@@ -450,6 +450,20 @@ fn main() {
     );
     println!("cargo:rerun-if-env-changed=LED_KIND");
 
+    // `cfg(panel)`: this image drives an LCD at all — the touch `display` build or the
+    // button-only `lcd-confirm` one. The panel's pins, clock and colour consts are
+    // shared by both, the touch stack is `display` alone.
+    if env::var("CARGO_FEATURE_DISPLAY").is_ok() || env::var("CARGO_FEATURE_LCD_CONFIRM").is_ok() {
+        println!("cargo:rustc-cfg=panel");
+    }
+    println!("cargo:rustc-check-cfg=cfg(panel)");
+    // `cfg(lcd_only)`: the button-only panel build. `display` already contains everything
+    // it does, so enabling both (`--all-features`) builds the touch UI.
+    if env::var("CARGO_FEATURE_LCD_CONFIRM").is_ok() && env::var("CARGO_FEATURE_DISPLAY").is_err() {
+        println!("cargo:rustc-cfg=lcd_only");
+    }
+    println!("cargo:rustc-check-cfg=cfg(lcd_only)");
+
     // WS2812 wire byte order (the `ws2812` backend only): `rgb` (default — the
     // Waveshare RP2350-One is unusually RGB) or `grb` (the WS2812B standard, e.g.
     // the TenStar RP2350-USB). The wrong order swaps red↔green (blue is fine).

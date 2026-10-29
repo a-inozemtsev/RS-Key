@@ -39,6 +39,9 @@ use rsk_device::presence::{Board, Outcome};
 
 use rsk_device::presence::Arbiter;
 
+// Read by `main`'s effective-timeout report (compiled out with a headless LED) and by
+// the touch build's timeout-choice assert below.
+#[cfg(any(feature = "display", not(led_kind = "none")))]
 pub(crate) use rsk_device::presence::MIN_TIMEOUT_SECS;
 pub use rsk_device::presence::{SCOPE_CCID, SCOPE_FIDO, SCOPE_NONE, SCOPE_OTP};
 
@@ -160,8 +163,11 @@ impl Board for Button {
 /// this alias to the `crate::display::TouchPresence` that renders on-screen
 /// Approve/Deny and returns a real `Declined`. Both satisfy the one
 /// `rsk_sdk::UserPresence` every applet asks through, so only this alias changes.
-#[cfg(not(feature = "display"))]
+#[cfg(not(any(feature = "display", lcd_only)))]
 pub type Presence = ButtonPresence;
+/// `lcd-confirm`: the same button wait, preceded by a confirm screen on the panel.
+#[cfg(lcd_only)]
+pub type Presence = crate::lcd_confirm::LcdPresence;
 #[cfg(feature = "display")]
 pub type Presence = crate::display::TouchPresence;
 

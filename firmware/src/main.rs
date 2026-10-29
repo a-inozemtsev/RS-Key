@@ -25,7 +25,7 @@ use embassy_rp::pio::InterruptHandler as PioIrq;
 // from the phy record (PicoForge); a `none` build pulls in none of them. DMA_CH0
 // and the PIO0/DMA IRQs stay bound unconditionally (the type is used by
 // `bind_interrupts!` below — harmless when no backend uses it).
-#[cfg(any(feature = "display", not(led_kind = "none")))]
+#[cfg(any(panel, not(led_kind = "none")))]
 use embassy_rp::pio::Pio;
 #[cfg(not(led_kind = "none"))]
 use embassy_rp::pio_programs::ws2812::{PioWs2812, PioWs2812Program};
@@ -49,6 +49,8 @@ mod core1;
 mod display;
 mod flash_storage;
 mod handler;
+#[cfg(lcd_only)]
+mod lcd_confirm;
 mod led;
 mod otp_kbd;
 mod otp_keys;
@@ -68,6 +70,16 @@ compile_error!(
     "the `display` build requires LED_KIND=none (the ST7789 panel replaces the LED \
      and its backlight uses GPIO16); build with `LED_KIND=none ... --features \
      display` — the `firmware-display` nix flavor sets this for you"
+);
+
+// `lcd-confirm` keeps the button as the presence source and adds a panel on top. With
+// `display` also on (`--all-features`) the touch build wins: `lcd_only` is the cfg for
+// the button-only one. It shares the PIO and DMA channel with the addressable-LED
+// driver, so it needs `LED_KIND=none`, like the touch build.
+#[cfg(all(lcd_only, not(led_kind = "none")))]
+compile_error!(
+    "the `lcd-confirm` build requires LED_KIND=none (the panel's PIO transport takes \
+     PIO0 and DMA_CH0 that the LED driver would use); BOARD=waveshare-lcd-147 sets it"
 );
 
 use flash_storage::FLASH_SIZE;
@@ -214,29 +226,29 @@ const _: () = assert!(
 );
 // Display GPIOs — defaults for the Waveshare RP2350-Touch-LCD-2.8.
 // Override via BOARD=<name> or individual PK_DISPLAY_* env vars.
-#[cfg(feature = "display")]
+#[cfg(panel)]
 const BUILD_DISPLAY_SPI_FREQ_HZ: u32 = env_u32(env!("PK_DISPLAY_SPI_FREQ_HZ"));
 /// The display build's system clock. The panel's PIO program spends two instructions
 /// per serial bit, so `clk_sys` has to be exactly twice `display.spi_freq_hz` for the
 /// divider to be 1 — which is what puts this above the RP2350's rated 150 MHz. The
 /// trade is written down in docs/limitations.md; the const assert below is what stops
 /// a board file from moving one half of it without the other.
-#[cfg(feature = "display")]
+#[cfg(panel)]
 const BUILD_DISPLAY_SYS_CLOCK_HZ: u32 = 160_000_000;
 
-#[cfg(feature = "display")]
+#[cfg(panel)]
 const _: () = assert!(
     BUILD_DISPLAY_SYS_CLOCK_HZ == BUILD_DISPLAY_SPI_FREQ_HZ * 2,
     "display.spi_freq_hz must be exactly half the system clock: the PIO emits one bit \
      per two cycles, and any other ratio needs a divider the transport does not set"
 );
-#[cfg(feature = "display")]
+#[cfg(panel)]
 const BUILD_DISPLAY_CLK: u8 = env_u16(env!("PK_DISPLAY_CLK")) as u8;
-#[cfg(feature = "display")]
+#[cfg(panel)]
 const BUILD_DISPLAY_MOSI: u8 = env_u16(env!("PK_DISPLAY_MOSI")) as u8;
 // The PIO transport takes typed pins, so only the (clk, mosi) pairs with an arm in the
 // `PioDisplayTx::new` match below can be built. Add an arm there, then list it here.
-#[cfg(feature = "display")]
+#[cfg(panel)]
 const _: () = assert!(
     matches!((BUILD_DISPLAY_CLK, BUILD_DISPLAY_MOSI), (10, 11) | (18, 19)),
     "unsupported display PIO pins (CLK, MOSI) — see the PioDisplayTx::new match in main.rs"
@@ -244,9 +256,9 @@ const _: () = assert!(
 // The panel's visible width and the controller column it starts at (`display.width`,
 // `display.x_offset`). The full UI is laid out for exactly `rsk_ui::PANEL_W` columns,
 // so a narrower glass cannot run it — fail the build rather than paint off the edge.
-#[cfg(feature = "display")]
+#[cfg(panel)]
 pub(crate) const BUILD_DISPLAY_WIDTH: u16 = env_u16(env!("PK_DISPLAY_WIDTH"));
-#[cfg(feature = "display")]
+#[cfg(panel)]
 pub(crate) const BUILD_DISPLAY_X_OFFSET: u16 = env_u16(env!("PK_DISPLAY_X_OFFSET"));
 #[cfg(feature = "display")]
 const _: () = assert!(
@@ -254,26 +266,58 @@ const _: () = assert!(
     "display.width differs from the full UI's panel width: the touch UI is laid out for \
      rsk_ui::PANEL_W columns (use the lcd-confirm build for a narrower panel)"
 );
-#[cfg(feature = "display")]
+#[cfg(panel)]
 const BUILD_DISPLAY_CS: u8 = env_u16(env!("PK_DISPLAY_CS")) as u8;
-#[cfg(feature = "display")]
+#[cfg(panel)]
 const BUILD_DISPLAY_DC: u8 = env_u16(env!("PK_DISPLAY_DC")) as u8;
-#[cfg(feature = "display")]
+#[cfg(panel)]
 const BUILD_DISPLAY_RST: u8 = env_u16(env!("PK_DISPLAY_RST")) as u8;
-#[cfg(feature = "display")]
+#[cfg(panel)]
 const BUILD_DISPLAY_BL_PIN: u8 = env_u16(env!("PK_DISPLAY_BL_PIN")) as u8;
-#[cfg(feature = "display")]
+#[cfg(panel)]
 const BUILD_DISPLAY_BL_PWM_SLICE: u8 = env_u16(env!("PK_DISPLAY_BL_PWM_SLICE")) as u8;
-#[cfg(feature = "display")]
+#[cfg(panel)]
 const BUILD_DISPLAY_BL_PWM_CHANNEL: u8 = env_u16(env!("PK_DISPLAY_BL_PWM_CHANNEL")) as u8;
 #[cfg(feature = "display")]
 const BUILD_DISPLAY_TP_RST: u8 = env_u16(env!("PK_DISPLAY_TP_RST")) as u8;
 #[cfg(feature = "display")]
 const BUILD_DISPLAY_I2C_FREQ_HZ: u32 = env_u32(env!("PK_DISPLAY_I2C_FREQ_HZ"));
-#[cfg(feature = "display")]
+#[cfg(panel)]
 pub(crate) const BUILD_DISPLAY_INVERT_COLORS: bool = env_u16(env!("PK_DISPLAY_INVERT_COLORS")) != 0;
-#[cfg(feature = "display")]
+#[cfg(panel)]
 pub(crate) const BUILD_DISPLAY_COLOR_ORDER: u8 = env_u16(env!("PK_DISPLAY_COLOR_ORDER")) as u8;
+
+// The `lcd-confirm` panel is exactly the width `rsk_ui::narrow` draws, and its control
+// pads must not collide with each other, the PIO pair, or a GPIO presence button (there
+// is no touch bus on this build). Same compile-time rule the `display` block below applies.
+#[cfg(lcd_only)]
+const _: () = {
+    assert!(
+        BUILD_DISPLAY_WIDTH == rsk_ui::narrow::NARROW_W,
+        "display.width must equal rsk_ui::narrow::NARROW_W (172) for the lcd-confirm build"
+    );
+    const PADS: &[u8] = &[
+        BUILD_DISPLAY_CLK,
+        BUILD_DISPLAY_MOSI,
+        BUILD_DISPLAY_CS,
+        BUILD_DISPLAY_DC,
+        BUILD_DISPLAY_RST,
+        BUILD_DISPLAY_BL_PIN,
+    ];
+    let mut i = 0;
+    while i < PADS.len() {
+        let mut j = i + 1;
+        while j < PADS.len() {
+            assert!(PADS[i] != PADS[j], "duplicate panel GPIO");
+            j += 1;
+        }
+        assert!(
+            !BUILD_PRESENCE_IS_GPIO || PADS[i] != BUILD_PRESENCE_PIN,
+            "PRESENCE_PIN overlaps a panel GPIO"
+        );
+        i += 1;
+    }
+};
 
 // Display control GPIOs are board-configurable and claimed via AnyPin::steal
 // (CS/DC/RST/TP_RST) or Pwm::new_output_* (BL); PIO owns CLK/MOSI (10/11 by default) and I2C1 owns 6/7.
@@ -546,7 +590,7 @@ async fn main(spawner: Spawner) {
     arm_stack_limit();
 
     let mut config = embassy_rp::config::Config::default();
-    #[cfg(feature = "display")]
+    #[cfg(panel)]
     {
         config.clocks = embassy_rp::clocks::ClockConfig::system_freq(BUILD_DISPLAY_SYS_CLOCK_HZ)
             .expect("the display system clock must have valid PLL parameters");
@@ -1183,6 +1227,73 @@ async fn main(spawner: Spawner) {
         spawner.spawn(display::status_task(ui).unwrap());
         ui
     };
+    // `lcd-confirm`: the same PIO transport and pin wiring as the touch build, without
+    // the touch bus, wake button or flow. Built after the USB task is spawned so the
+    // panel's ~370 ms reset runs while the interrupt executor enumerates.
+    #[cfg(lcd_only)]
+    let lcd_hw = {
+        use embassy_rp::gpio::{Level, Output};
+        use embassy_rp::pwm::Pwm;
+
+        let Pio {
+            mut common, sm0, ..
+        } = Pio::new(p.PIO0, Irqs);
+        macro_rules! pio_tx {
+            ($clk:expr, $mosi:expr) => {
+                lcd_confirm::PioDisplayTx::new(
+                    &mut common,
+                    sm0,
+                    $clk,
+                    $mosi,
+                    p.DMA_CH0,
+                    Irqs,
+                    BUILD_DISPLAY_SPI_FREQ_HZ,
+                )
+            };
+        }
+        // As in the touch build: GPIO18/19 are the PIO pair or the backlight pad, never
+        // both, but the borrow checker cannot see that across two matches.
+        let mut pin18 = Some(p.PIN_18);
+        let mut pin19 = Some(p.PIN_19);
+        let spi = match (BUILD_DISPLAY_CLK, BUILD_DISPLAY_MOSI) {
+            (10, 11) => pio_tx!(p.PIN_10, p.PIN_11),
+            (18, 19) => pio_tx!(pin18.take().unwrap(), pin19.take().unwrap()),
+            _ => unreachable!("unsupported display PIO pins"),
+        };
+        let cs = Output::new(
+            unsafe { embassy_rp::gpio::AnyPin::steal(BUILD_DISPLAY_CS) },
+            Level::High,
+        );
+        let dc = Output::new(
+            unsafe { embassy_rp::gpio::AnyPin::steal(BUILD_DISPLAY_DC) },
+            Level::Low,
+        );
+        let rst = Output::new(
+            unsafe { embassy_rp::gpio::AnyPin::steal(BUILD_DISPLAY_RST) },
+            Level::High,
+        );
+        let cfg = lcd_confirm::backlight_cfg(0);
+        let bl = match (
+            BUILD_DISPLAY_BL_PIN,
+            BUILD_DISPLAY_BL_PWM_SLICE,
+            BUILD_DISPLAY_BL_PWM_CHANNEL,
+        ) {
+            (16, 0, 0) => Pwm::new_output_a(p.PWM_SLICE0, p.PIN_16, cfg),
+            (17, 0, 1) => Pwm::new_output_b(p.PWM_SLICE0, p.PIN_17, cfg),
+            (18, 1, 0) => Pwm::new_output_a(p.PWM_SLICE1, pin18.take().unwrap(), cfg),
+            (19, 1, 1) => Pwm::new_output_b(p.PWM_SLICE1, pin19.take().unwrap(), cfg),
+            (20, 2, 0) => Pwm::new_output_a(p.PWM_SLICE2, p.PIN_20, cfg),
+            (21, 2, 1) => Pwm::new_output_b(p.PWM_SLICE2, p.PIN_21, cfg),
+            _ => unreachable!("unsupported backlight PWM config"),
+        };
+        lcd_confirm::PanelHw {
+            spi,
+            cs,
+            dc,
+            rst,
+            bl,
+        }
+    };
     core1::spawn(p.CORE1);
 
     // Standard key: BOOTSEL by default, or a dedicated `PRESENCE_PIN` GPIO button.
@@ -1195,6 +1306,8 @@ async fn main(spawner: Spawner) {
         } else {
             ButtonPresence::new_bootsel(p.BOOTSEL)
         };
+        #[cfg(lcd_only)]
+        let presence = lcd_confirm::LcdPresence::new(presence, lcd_hw);
         PRESENCE.init(RefCell::new(presence))
     };
     #[cfg(feature = "display")]

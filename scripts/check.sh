@@ -562,6 +562,9 @@ run "clippy (core1-stats fw)"  cargo clippy -p firmware --features core1-stats -
 # The display path (panel driver + touch) is `LED_KIND=none`-only, so the default
 # embedded clippy above never lints it — gate it explicitly, like the fips firmware.
 run "clippy (display firmware)" env LED_KIND=none cargo clippy -p firmware --features display -- -D warnings
+# The button-only panel build (no touch controller): same LED_KIND=none rule, and the
+# board file carries its 172-wide geometry, so lint it under that board.
+run "clippy (lcd-confirm firmware)" env BOARD=waveshare-lcd-147 cargo clippy -p firmware --features lcd-confirm -- -D warnings
 # The trusted-display PIN pad's trivial-PIN reject is display+strong-pin-gated, so the
 # plain display clippy above never compiles it — lint the combination explicitly.
 run "clippy (display strong-pin)" env LED_KIND=none cargo clippy -p firmware --features display,strong-pin -- -D warnings
@@ -622,6 +625,8 @@ run "partition table fences the store (16M)" partition_table_fences_the_store
 # produced at 4 MB.
 run "build firmware (display)" env LED_KIND=none FLASH_SIZE=16M cargo build --release -p firmware --features display
 run "firmware stack floor (display)" display_stack_floor
+# The button-only panel flavor must keep building too, under the board it exists for.
+run "build firmware (lcd-confirm)" env BOARD=waveshare-lcd-147 cargo build --release -p firmware --features lcd-confirm
 # Machine-checked "no size cost for keys without a screen": the display UI crate
 # and its driver stack must be absent from the DEFAULT firmware dependency tree, so
 # a standard key can not pull any of the screen code in.

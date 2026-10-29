@@ -173,6 +173,13 @@ strict-config = ["rsk-mgmt/strict-config", "rsk-fido/strict-config", "rsk-otp/st
 # firmware --features display` (the panel is the status indicator, so there is no
 # addressable LED, which also frees GPIO16 for the backlight).
 display = ["rsk-device/display", "dep:rsk-display", "dep:rsk-ui", "dep:rsk-bip39", "dep:rsk-slip39", "dep:mipidsi", "dep:embedded-graphics"]
+# Confirm-screen build for a screen board with NO touch controller (Waveshare
+# RP2350-LCD-1.47-A, 172x320): the ordinary BOOTSEL / GPIO button stays the presence
+# source, and the panel shows what the button is approving (the real relying party and
+# account) while it waits. No PIN pad, settings or browsers: those need a finger. With
+# `display` also on (`--all-features`) the touch build wins. Build with
+# `BOARD=waveshare-lcd-147 cargo build --release -p firmware --features lcd-confirm`.
+lcd-confirm = ["dep:rsk-ui", "dep:mipidsi", "dep:embedded-graphics"]
 
 [[bin]]
 name = "firmware"
