@@ -336,12 +336,14 @@ fn color_rgb(color: u8, b: u8) -> RGB8 {
 /// advances (so toggling back to blinking resumes cleanly) but the colour stays
 /// lit the whole phase.
 #[cfg(not(led_kind = "none"))]
+#[cfg_attr(lcd_only, allow(dead_code))]
 struct Blinker {
     on_phase: bool,
     phase_end: Instant,
 }
 
 #[cfg(not(led_kind = "none"))]
+#[cfg_attr(lcd_only, allow(dead_code))]
 impl Blinker {
     fn new() -> Self {
         Self {
@@ -732,6 +734,7 @@ pub async fn pimoroni_task(mut rg: Pwm<'static>, mut b: Pwm<'static>) {
 /// channels inverted (the LED lights when the pin is driven low / sinks current).
 /// Shared by the task and `main`'s `Pwm` construction so the polarity matches.
 #[cfg(not(led_kind = "none"))]
+#[cfg_attr(lcd_only, allow(dead_code))]
 pub fn pimoroni_cfg() -> PwmConfig {
     // `PwmConfig` is `#[non_exhaustive]`, so build from Default and set fields.
     let mut cfg = PwmConfig::default();

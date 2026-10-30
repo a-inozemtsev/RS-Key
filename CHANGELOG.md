@@ -38,6 +38,32 @@ tag: the USB `bcdDevice` build counter (bumped on every behavior change), and
 
 ## [Unreleased]
 
+### Added
+
+- **`lcd-confirm`: a confirm screen for a panel with no touch controller
+  (Waveshare RP2350-LCD-1.47-A, 172×320).** The BOOTSEL (or `PRESENCE_PIN`) button
+  stays the presence source, so the wait, cancel and timeout are the stock button
+  path; the panel adds what a button cannot say, the real relying party and account,
+  painted before the wait, and an idle card after it. There is no Deny — the button
+  has none, so declining is letting the wait time out, and the prompt says so — and
+  no PIN pad or settings, which need a finger. The build refuses anything but
+  `LED_KIND=none` and a 172-column panel at compile time. Board files gain
+  `display.width` and `display.x_offset` (the 172-wide glass sits 34 columns into
+  the controller's 240-column RAM) and `display.clk` / `display.mosi` for the PIO
+  pair, which were GPIO10/11 in code; the touch `display` build keeps its defaults
+  and now refuses a panel narrower than its UI at compile time. Built with
+  `BOARD=waveshare-lcd-147 … --features lcd-confirm`; with `display` also enabled
+  the touch build wins, so `--all-features` still builds. The panel's transport runs
+  on PIO1 and DMA_CH1, so the board's WS2812 keeps PIO0 and works as on any other key
+  (the touch wait shows on it); it is pinned to GPIO22 with no phy driver or pin
+  override, because those can name a pad the panel owns, and a GPIO or Pimoroni LED is
+  refused at compile time. The panel's setup moved into one shared block, so the touch
+  image is a refactor, no behaviour change.
+  Host tests cover the screens (wrapping, the cut-domain and cut-account marks, no
+  write outside 172×320); shown on a board with webauthn.io — domain and user
+  named, idle card after the timeout — and the BOOT approve is not yet.
+  **bcdDevice → 0x09DC.**
+
 ## [0.4.11] - 2026-09-08
 
 The catch-up release, and the one where the instruments were audited harder than

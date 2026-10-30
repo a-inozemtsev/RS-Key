@@ -25,10 +25,7 @@ use rsk_ui::ConfirmPrompt;
 
 use crate::presence::ButtonPresence;
 
-#[path = "display_panel.rs"]
-mod display_panel;
-use display_panel::Panel;
-pub(crate) use display_panel::PioDisplayTx;
+use crate::display_panel::{Panel, PioDisplayTx};
 
 /// Backlight PWM counter top; `duty` is the on-fraction of it.
 const BL_TOP: u16 = 255;

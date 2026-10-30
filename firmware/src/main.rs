@@ -19,6 +19,8 @@ use embassy_rp::flash::{Blocking, Flash};
 use embassy_rp::interrupt;
 use embassy_rp::interrupt::{InterruptExt, Priority};
 use embassy_rp::peripherals::{DMA_CH0, PIO0, TRNG, USB};
+#[cfg(lcd_only)]
+use embassy_rp::peripherals::{DMA_CH1, PIO1};
 use embassy_rp::pio::InterruptHandler as PioIrq;
 // The `ws2812` LED backend drives the addressable LED over the PIO. Any non-`none`
 // build compiles all three hardware backends so the driver is runtime-selectable
@@ -47,6 +49,8 @@ use rsk_usb::ctaphid::{CtapHid, FIDO_REPORT_DESCRIPTOR};
 mod core1;
 #[cfg(feature = "display")]
 mod display;
+#[cfg(panel)]
+mod display_panel;
 mod flash_storage;
 mod handler;
 #[cfg(lcd_only)]
@@ -74,12 +78,19 @@ compile_error!(
 
 // `lcd-confirm` keeps the button as the presence source and adds a panel on top. With
 // `display` also on (`--all-features`) the touch build wins: `lcd_only` is the cfg for
-// the button-only one. It shares the PIO and DMA channel with the addressable-LED
-// driver, so it needs `LED_KIND=none`, like the touch build.
-#[cfg(all(lcd_only, not(led_kind = "none")))]
+// the button-only one. Its panel runs on PIO1/DMA_CH1, so the addressable LED keeps
+// PIO0/DMA_CH0 and can stay: but only as the board's one fixed WS2812 on GPIO22 — the
+// runtime driver and pin overrides of an ordinary build can name the panel's pads, so
+// this build does not offer them.
+#[cfg(all(lcd_only, any(led_kind = "gpio", led_kind = "pimoroni")))]
 compile_error!(
-    "the `lcd-confirm` build requires LED_KIND=none (the panel's PIO transport takes \
-     PIO0 and DMA_CH0 that the LED driver would use); BOARD=waveshare-lcd-147 sets it"
+    "the `lcd-confirm` build supports LED_KIND=ws2812 (on GPIO22) or none; a GPIO or \
+     Pimoroni LED would take pads the panel owns"
+);
+#[cfg(all(lcd_only, led_kind = "ws2812"))]
+const _: () = assert!(
+    BUILD_LED_PIN == 22,
+    "the `lcd-confirm` build drives its WS2812 on GPIO22 only (LED_PIN=22)"
 );
 
 use flash_storage::FLASH_SIZE;
@@ -103,7 +114,11 @@ static IMAGE_DEF: embassy_rp::block::ImageDef = embassy_rp::block::ImageDef::sec
 
 bind_interrupts!(struct Irqs {
     PIO0_IRQ_0 => PioIrq<PIO0>;
-    DMA_IRQ_0 => DmaIrq<DMA_CH0>;
+    // The button-only panel build runs its transport on PIO1 and DMA_CH1, leaving PIO0
+    // and DMA_CH0 to the addressable LED.
+    #[cfg(lcd_only)]
+    PIO1_IRQ_0 => PioIrq<PIO1>;
+    DMA_IRQ_0 => DmaIrq<DMA_CH0>, #[cfg(lcd_only)] DmaIrq<DMA_CH1>;
     USBCTRL_IRQ => UsbIrq<USB>;
     TRNG_IRQ => TrngIrq<TRNG>;
 });
@@ -782,7 +797,7 @@ async fn main(spawner: Spawner) {
     config.max_power = 100;
     config.max_packet_size_0 = 64;
     // bcdDevice build counter; also surfaced on the trusted-display Firmware screen.
-    let device_release: u16 = 0x09DA;
+    let device_release: u16 = 0x09DC;
     config.device_release = device_release;
 
     let mut builder = Builder::new(
@@ -921,6 +936,8 @@ async fn main(spawner: Spawner) {
     #[cfg(not(led_kind = "none"))]
     {
         use embassy_rp::gpio::{Level, Output};
+        // The GPIO and Pimoroni drivers are not part of the button-only panel build.
+        #[cfg(not(lcd_only))]
         use embassy_rp::pwm::Pwm;
 
         // A build whose default LED pin collides with a GPIO presence pin is a
@@ -956,6 +973,7 @@ async fn main(spawner: Spawner) {
         // PHY led_gpio overrides the build LED_PIN; out of range, or aimed at a pad
         // another driver already owns, falls back to the build default rather than
         // two owners of one pad (the const asserts above only bind BUILD_LED_PIN).
+        #[cfg(not(lcd_only))]
         let led_gpio = phy
             .as_ref()
             .and_then(|p| p.led_gpio)
@@ -966,10 +984,16 @@ async fn main(spawner: Spawner) {
             .unwrap_or(BUILD_LED_PIN);
         // PHY led_driver (1=gpio, 2=pimoroni, 3=ws2812) overrides the build kind;
         // anything else (unset, or the N/A esp32 value) keeps the build default.
+        #[cfg(not(lcd_only))]
         let led_driver = match phy.as_ref().and_then(|p| p.led_driver) {
             Some(d @ 1..=3) => d,
             _ => BUILD_DRIVER,
         };
+        // `lcd-confirm`: the board's one WS2812, fixed. The phy overrides above can name a
+        // pad the panel owns or a driver that moves its pins, so they are not honoured
+        // here and the values published below are the ones actually in force.
+        #[cfg(lcd_only)]
+        let (led_gpio, led_driver) = (BUILD_LED_PIN, BUILD_DRIVER);
         // Publish the boot-resolved phy values so CONFIG_READ can show the host
         // the effective LED pin/driver + touch timeout, not a bare "default". A
         // headless `led_kind="none"` build compiles this whole block out, leaving
@@ -985,6 +1009,7 @@ async fn main(spawner: Spawner) {
         rsk_fido::config::set_effective_phy(led_gpio, led_driver, effective_timeout_secs);
 
         match led_driver {
+            #[cfg(not(lcd_only))]
             1 => {
                 // `gpio`: a plain on/off LED on `led_gpio`. `Output<'static>` erases
                 // the pin, so every arm is the same type.
@@ -1027,6 +1052,7 @@ async fn main(spawner: Spawner) {
                 };
                 hp.spawn(led::gpio_task(led).unwrap());
             }
+            #[cfg(not(lcd_only))]
             2 => {
                 // `pimoroni`: a 3-pin PWM RGB on fixed pins (Pimoroni Tiny 2350) —
                 // R=GPIO18 (slice1·A), G=GPIO19 (slice1·B), B=GPIO20 (slice2·A);
@@ -1055,6 +1081,7 @@ async fn main(spawner: Spawner) {
                         )
                     };
                 }
+                #[cfg(not(lcd_only))]
                 let ws2812 = match led_gpio {
                     0 => ws2812_pin!(p.PIN_0),
                     1 => ws2812_pin!(p.PIN_1),
@@ -1087,42 +1114,46 @@ async fn main(spawner: Spawner) {
                     28 => ws2812_pin!(p.PIN_28),
                     _ => ws2812_pin!(p.PIN_29),
                 };
+                // Pinned to GPIO22 by the assert above; `led_gpio` is that same value.
+                #[cfg(lcd_only)]
+                let ws2812 = ws2812_pin!(p.PIN_22);
                 hp.spawn(led::ws2812_task(ws2812).unwrap());
             }
         }
     }
 
-    // Trusted display (the `display` build — always `LED_KIND=none` per the guard
-    // above, so the LED block compiled out and PIO0/I2C1/GPIO16 are free). Build the
-    // panel + touch here, after the USB task is spawned, so its ~370 ms reset runs
-    // while the interrupt executor enumerates — never delaying it. `status_task`
-    // mirrors the device status; the `TouchPresence` backend (the `presence::Presence`
-    // below) paints the confirm prompt. Both share the panel via the `UI` cell on the
-    // thread executor.
-    #[cfg(feature = "display")]
-    let display_ui = {
+    // The panel's PIO transport, control pads and backlight: one block for both panel
+    // builds (`display` and `lcd-confirm`), so the pads are claimed once. Built after the
+    // USB task is spawned so the panel's ~370 ms reset runs while the interrupt executor
+    // enumerates — never delaying it.
+    #[cfg(panel)]
+    let (panel_spi, panel_cs, panel_dc, panel_rst, panel_bl) = {
         use embassy_rp::gpio::{Level, Output};
-        use embassy_rp::i2c::{Config as I2cConfig, I2c};
         use embassy_rp::pwm::Pwm;
 
+        // The button-only build keeps PIO0/DMA_CH0 for its LED.
+        #[cfg(not(lcd_only))]
+        let (panel_pio, panel_dma) = (p.PIO0, p.DMA_CH0);
+        #[cfg(lcd_only)]
+        let (panel_pio, panel_dma) = (p.PIO1, p.DMA_CH1);
         let Pio {
             mut common, sm0, ..
-        } = Pio::new(p.PIO0, Irqs);
+        } = Pio::new(panel_pio, Irqs);
         macro_rules! pio_tx {
             ($clk:expr, $mosi:expr) => {
-                display::PioDisplayTx::new(
+                display_panel::PioDisplayTx::new(
                     &mut common,
                     sm0,
                     $clk,
                     $mosi,
-                    p.DMA_CH0,
+                    panel_dma,
                     Irqs,
                     BUILD_DISPLAY_SPI_FREQ_HZ,
                 )
             };
         }
         // GPIO18/19 can be the PIO pair or the backlight pad, never both (the collision
-        // assert above), but the borrow checker cannot see that across two matches, so
+        // asserts above), but the borrow checker cannot see that across two matches, so
         // each pad is handed out through an `Option` taken by whichever one needs it.
         let mut pin18 = Some(p.PIN_18);
         let mut pin19 = Some(p.PIN_19);
@@ -1132,11 +1163,6 @@ async fn main(spawner: Spawner) {
             // Guarded by the const assert above — unreachable at runtime.
             _ => unreachable!("unsupported display PIO pins"),
         };
-
-        let mut i2c_cfg = I2cConfig::default();
-        i2c_cfg.frequency = BUILD_DISPLAY_I2C_FREQ_HZ;
-        let i2c = I2c::new_blocking(p.I2C1, p.PIN_7, p.PIN_6, i2c_cfg);
-
         let cs = Output::new(
             unsafe { embassy_rp::gpio::AnyPin::steal(BUILD_DISPLAY_CS) },
             Level::High,
@@ -1149,6 +1175,48 @@ async fn main(spawner: Spawner) {
             unsafe { embassy_rp::gpio::AnyPin::steal(BUILD_DISPLAY_RST) },
             Level::High,
         );
+        // Backlight PWM — pin, slice, and channel from the board config.
+        let bl = {
+            #[cfg(feature = "display")]
+            let cfg = display::backlight_cfg(0);
+            #[cfg(lcd_only)]
+            let cfg = lcd_confirm::backlight_cfg(0);
+            match (
+                BUILD_DISPLAY_BL_PIN,
+                BUILD_DISPLAY_BL_PWM_SLICE,
+                BUILD_DISPLAY_BL_PWM_CHANNEL,
+            ) {
+                (16, 0, 0) => Pwm::new_output_a(p.PWM_SLICE0, p.PIN_16, cfg),
+                (17, 0, 1) => Pwm::new_output_b(p.PWM_SLICE0, p.PIN_17, cfg),
+                (18, 1, 0) => Pwm::new_output_a(p.PWM_SLICE1, pin18.take().unwrap(), cfg),
+                (19, 1, 1) => Pwm::new_output_b(p.PWM_SLICE1, pin19.take().unwrap(), cfg),
+                (20, 2, 0) => Pwm::new_output_a(p.PWM_SLICE2, p.PIN_20, cfg),
+                (21, 2, 1) => Pwm::new_output_b(p.PWM_SLICE2, p.PIN_21, cfg),
+                _ => {
+                    // Guarded by the const assert below — unreachable at runtime,
+                    // kept so the match stays exhaustive over (pin, slice, channel).
+                    unreachable!("unsupported backlight PWM config")
+                }
+            }
+        };
+        (spi, cs, dc, rst, bl)
+    };
+
+    // Trusted display (the `display` build — always `LED_KIND=none` per the guard
+    // above, so the LED block compiled out and PIO0/I2C1/GPIO16 are free). The touch bus,
+    // wake button and flow go on top of the shared panel above. `status_task` mirrors
+    // the device status; the `TouchPresence` backend (the `presence::Presence` below)
+    // paints the confirm prompt. Both share the panel via the `UI` cell on the thread
+    // executor.
+    #[cfg(feature = "display")]
+    let display_ui = {
+        use embassy_rp::gpio::{Level, Output};
+        use embassy_rp::i2c::{Config as I2cConfig, I2c};
+
+        let mut i2c_cfg = I2cConfig::default();
+        i2c_cfg.frequency = BUILD_DISPLAY_I2C_FREQ_HZ;
+        let i2c = I2c::new_blocking(p.I2C1, p.PIN_7, p.PIN_6, i2c_cfg);
+
         // Display-sleep wake button (default the BAT_PWR / KEY_BAT button on GPIO25).
         // Active-low with an internal pull-up by default (`WAKE_ACTIVE_HIGH` flips it);
         // `WAKE_PIN=none` leaves it unwired so only a touch wakes. Stealing the pin is
@@ -1171,38 +1239,17 @@ async fn main(spawner: Spawner) {
         } else {
             None
         };
-        // Backlight PWM — pin, slice, and channel from the board config.
-        let bl = {
-            let cfg = display::backlight_cfg(0);
-            match (
-                BUILD_DISPLAY_BL_PIN,
-                BUILD_DISPLAY_BL_PWM_SLICE,
-                BUILD_DISPLAY_BL_PWM_CHANNEL,
-            ) {
-                (16, 0, 0) => Pwm::new_output_a(p.PWM_SLICE0, p.PIN_16, cfg),
-                (17, 0, 1) => Pwm::new_output_b(p.PWM_SLICE0, p.PIN_17, cfg),
-                (18, 1, 0) => Pwm::new_output_a(p.PWM_SLICE1, pin18.take().unwrap(), cfg),
-                (19, 1, 1) => Pwm::new_output_b(p.PWM_SLICE1, pin19.take().unwrap(), cfg),
-                (20, 2, 0) => Pwm::new_output_a(p.PWM_SLICE2, p.PIN_20, cfg),
-                (21, 2, 1) => Pwm::new_output_b(p.PWM_SLICE2, p.PIN_21, cfg),
-                _ => {
-                    // Guarded by the const assert below — unreachable at runtime,
-                    // kept so the match stays exhaustive over (pin, slice, channel).
-                    unreachable!("unsupported backlight PWM config")
-                }
-            }
-        };
         let tp_rst = Output::new(
             unsafe { embassy_rp::gpio::AnyPin::steal(BUILD_DISPLAY_TP_RST) },
             Level::High,
         );
 
         let panel = display::PanelHw {
-            spi,
-            cs,
-            dc,
-            rst,
-            bl,
+            spi: panel_spi,
+            cs: panel_cs,
+            dc: panel_dc,
+            rst: panel_rst,
+            bl: panel_bl,
         };
         let touch = display::TouchHw { i2c, rst: tp_rst };
         let info = display::DeviceInfo {
@@ -1227,72 +1274,14 @@ async fn main(spawner: Spawner) {
         spawner.spawn(display::status_task(ui).unwrap());
         ui
     };
-    // `lcd-confirm`: the same PIO transport and pin wiring as the touch build, without
-    // the touch bus, wake button or flow. Built after the USB task is spawned so the
-    // panel's ~370 ms reset runs while the interrupt executor enumerates.
+    // `lcd-confirm`: the shared panel above, without the touch bus, wake button or flow.
     #[cfg(lcd_only)]
-    let lcd_hw = {
-        use embassy_rp::gpio::{Level, Output};
-        use embassy_rp::pwm::Pwm;
-
-        let Pio {
-            mut common, sm0, ..
-        } = Pio::new(p.PIO0, Irqs);
-        macro_rules! pio_tx {
-            ($clk:expr, $mosi:expr) => {
-                lcd_confirm::PioDisplayTx::new(
-                    &mut common,
-                    sm0,
-                    $clk,
-                    $mosi,
-                    p.DMA_CH0,
-                    Irqs,
-                    BUILD_DISPLAY_SPI_FREQ_HZ,
-                )
-            };
-        }
-        // As in the touch build: GPIO18/19 are the PIO pair or the backlight pad, never
-        // both, but the borrow checker cannot see that across two matches.
-        let mut pin18 = Some(p.PIN_18);
-        let mut pin19 = Some(p.PIN_19);
-        let spi = match (BUILD_DISPLAY_CLK, BUILD_DISPLAY_MOSI) {
-            (10, 11) => pio_tx!(p.PIN_10, p.PIN_11),
-            (18, 19) => pio_tx!(pin18.take().unwrap(), pin19.take().unwrap()),
-            _ => unreachable!("unsupported display PIO pins"),
-        };
-        let cs = Output::new(
-            unsafe { embassy_rp::gpio::AnyPin::steal(BUILD_DISPLAY_CS) },
-            Level::High,
-        );
-        let dc = Output::new(
-            unsafe { embassy_rp::gpio::AnyPin::steal(BUILD_DISPLAY_DC) },
-            Level::Low,
-        );
-        let rst = Output::new(
-            unsafe { embassy_rp::gpio::AnyPin::steal(BUILD_DISPLAY_RST) },
-            Level::High,
-        );
-        let cfg = lcd_confirm::backlight_cfg(0);
-        let bl = match (
-            BUILD_DISPLAY_BL_PIN,
-            BUILD_DISPLAY_BL_PWM_SLICE,
-            BUILD_DISPLAY_BL_PWM_CHANNEL,
-        ) {
-            (16, 0, 0) => Pwm::new_output_a(p.PWM_SLICE0, p.PIN_16, cfg),
-            (17, 0, 1) => Pwm::new_output_b(p.PWM_SLICE0, p.PIN_17, cfg),
-            (18, 1, 0) => Pwm::new_output_a(p.PWM_SLICE1, pin18.take().unwrap(), cfg),
-            (19, 1, 1) => Pwm::new_output_b(p.PWM_SLICE1, pin19.take().unwrap(), cfg),
-            (20, 2, 0) => Pwm::new_output_a(p.PWM_SLICE2, p.PIN_20, cfg),
-            (21, 2, 1) => Pwm::new_output_b(p.PWM_SLICE2, p.PIN_21, cfg),
-            _ => unreachable!("unsupported backlight PWM config"),
-        };
-        lcd_confirm::PanelHw {
-            spi,
-            cs,
-            dc,
-            rst,
-            bl,
-        }
+    let lcd_hw = lcd_confirm::PanelHw {
+        spi: panel_spi,
+        cs: panel_cs,
+        dc: panel_dc,
+        rst: panel_rst,
+        bl: panel_bl,
     };
     core1::spawn(p.CORE1);
 

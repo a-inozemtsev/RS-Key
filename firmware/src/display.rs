@@ -28,10 +28,7 @@ use rsk_rsa::RsaKey;
 use crate::flash_storage::FlashStorage;
 use crate::handler::{FidoRng, Store};
 
-#[path = "display_panel.rs"]
-mod display_panel;
-use display_panel::Panel;
-pub(crate) use display_panel::PioDisplayTx;
+use crate::display_panel::{Panel, PioDisplayTx};
 
 pub use rsk_display::{DeviceInfo, DeviceKeys, UI_YIELD_FLOOR_MS, piv_ref_title};
 

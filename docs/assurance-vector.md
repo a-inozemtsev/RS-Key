@@ -151,10 +151,12 @@ The same 40 P0-family rows, counted the other way round: per column rather than 
 | `fido-conformance` | feature | no | 3 | 37 |
 | `ea-conformance-rpid` | feature | no | 3 | 37 |
 | `largeblob-ext` | feature | no | 3 | 37 |
+| `lcd-confirm` | feature | no | 0 | 40 |
 | `abrobot-16m` | board | no | 9 | 31 |
 | `abrobot-4m` | board | no | 36 | 4 |
 | `seeed-xiao` | board | no | 9 | 31 |
 | `tenstar-usb` | board | no | 9 | 31 |
+| `waveshare-lcd-147` | board | no | 0 | 40 |
 | `waveshare-one` | board | no | 40 | 0 |
 | `waveshare-touch-lcd` | board | no | 9 | 31 |
 

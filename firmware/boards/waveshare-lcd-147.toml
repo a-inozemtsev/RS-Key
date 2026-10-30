@@ -11,16 +11,20 @@
 #
 # Pins (schematic RP2350-LCD-1.47-A and the vendor demo's DEV_Config.h, which agree):
 #   LCD_DC 16   LCD_CS 17   LCD_CLK 18   LCD_DIN 19   LCD_RST 20   LCD_BL 21
-#   WS2812 22 (unused: the build is LED_KIND=none)   SD card 10..15 (unused)
+#   WS2812 22   SD card 10..15 (unused)
 #   Key1 = BOOT (QSPI_SS, the presence button), Key2 = RESET.
 
 [usb]
 vidpid = "RSKey"
 
 [led]
-# The panel's PIO transport takes PIO0 and DMA_CH0, which the addressable-LED driver also
-# wants; the build refuses anything but `none` at compile time.
-kind = "none"
+# The board's WS2812 on GPIO22. The panel's transport runs on PIO1/DMA_CH1, so the LED keeps
+# PIO0/DMA_CH0; the `lcd-confirm` build pins the LED to this pin and driver (no runtime
+# override), and refuses a GPIO or Pimoroni LED at compile time. `grb` is the WS2812B
+# standard; if red and green come out swapped, set `rgb` here.
+kind = "ws2812"
+pin = 22
+order = "grb"
 
 [presence]
 source = "bootsel"

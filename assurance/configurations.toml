@@ -974,3 +974,29 @@ in `check.sh` builds `firmware` on it at all. The board loop builds `rsk-wipe`, 
 and both `BOARD=` firmware rows pin `waveshare-one`. So the column is real and \
 WHOLLY UNEXERCISED, and what is left to decide is whether the tree should build \
 it, or whether it should be a knob of `firmware-display` instead."""
+
+[[question]]
+column = "lcd-confirm"
+owner = "contributor"
+settled_by = "evidence"
+text = """
+The button-only panel build: `rsk-ui` is linked but `rsk-display` is not, and \
+presence is still the stock button wait, behind `LcdPresence`, which paints the \
+request first and forwards every ask unchanged. Which of the presence and launch \
+properties hold here unchanged, and what evidence was produced on THIS image \
+rather than inherited from `firmware`? The screens are host-tested for wrapping \
+and bounds, but nothing machine-checks that the panel shows the request the \
+button approves, and the image was exercised on one board by hand."""
+
+[[question]]
+column = "waveshare-lcd-147"
+owner = "contributor"
+settled_by = "evidence"
+text = """
+The board preset the `lcd-confirm` image is built for: 16 MB geometry, the \
+board's WS2812 pinned to GPIO22 (the panel's transport on PIO1/DMA_CH1, so the \
+LED keeps PIO0), a 172-column panel whose window starts 34 columns in. The \
+geometry half is `firmware-16mb`'s question. The new half is that the preset \
+does nothing without `--features lcd-confirm`, and `check.sh` builds the image \
+on it once, so what is left to decide is which properties that single row can \
+carry from `covered` rather than leaving them at `gap`."""

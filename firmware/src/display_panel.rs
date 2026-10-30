@@ -9,7 +9,13 @@ use embassy_futures::{block_on, poll_once};
 use embassy_rp::dma::{Channel, ChannelInstance};
 use embassy_rp::gpio::{Level, Output};
 use embassy_rp::interrupt::typelevel::Binding;
-use embassy_rp::peripherals::{DMA_CH0, PIO0};
+#[cfg(not(lcd_only))]
+use embassy_rp::peripherals::{DMA_CH0 as PanelDma, PIO0 as PanelPio};
+// The button-only build keeps PIO0 and DMA_CH0 for the addressable LED, which the board
+// has next to its panel; the panel's transport moves to the other PIO block and a free
+// DMA channel. The touch build has no LED and stays where it was.
+#[cfg(lcd_only)]
+use embassy_rp::peripherals::{DMA_CH1 as PanelDma, PIO1 as PanelPio};
 use embassy_rp::pio::{
     Common, Config as PioConfig, Direction, FifoJoin, LoadedProgram, PioPin, ShiftDirection,
     StateMachine,
@@ -37,20 +43,20 @@ const PANEL_PIXEL_FORMAT_RGB565: u8 = 0x55;
 
 /// TX-only mode-0 PIO transport. Two instructions generate one clock period.
 pub(crate) struct PioDisplayTx {
-    sm: StateMachine<'static, PIO0, 0>,
+    sm: StateMachine<'static, PanelPio, 0>,
     dma: Channel<'static>,
-    _program: LoadedProgram<'static, PIO0>,
+    _program: LoadedProgram<'static, PanelPio>,
 }
 
 impl PioDisplayTx {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
-        common: &mut Common<'static, PIO0>,
-        mut sm: StateMachine<'static, PIO0, 0>,
+        common: &mut Common<'static, PanelPio>,
+        mut sm: StateMachine<'static, PanelPio, 0>,
         clk: Peri<'static, impl PioPin>,
         mosi: Peri<'static, impl PioPin>,
-        dma: Peri<'static, DMA_CH0>,
-        irq: impl Binding<<DMA_CH0 as ChannelInstance>::Interrupt, dma::InterruptHandler<DMA_CH0>>
+        dma: Peri<'static, PanelDma>,
+        irq: impl Binding<<PanelDma as ChannelInstance>::Interrupt, dma::InterruptHandler<PanelDma>>
         + 'static,
         frequency: u32,
     ) -> Self {
