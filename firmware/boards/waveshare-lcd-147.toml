@@ -20,11 +20,11 @@ vidpid = "RSKey"
 [led]
 # The board's WS2812 on GPIO22. The panel's transport runs on PIO1/DMA_CH1, so the LED keeps
 # PIO0/DMA_CH0; the `lcd-confirm` build pins the LED to this pin and driver (no runtime
-# override), and refuses a GPIO or Pimoroni LED at compile time. `grb` is the WS2812B
-# standard; if red and green come out swapped, set `rgb` here.
+# override), and refuses a GPIO or Pimoroni LED at compile time. `rgb`, not the WS2812B
+# standard `grb`: on this board `grb` came out with red and green swapped.
 kind = "ws2812"
 pin = 22
-order = "grb"
+order = "rgb"
 
 [presence]
 source = "bootsel"

@@ -57,12 +57,13 @@ tag: the USB `bcdDevice` build counter (bumped on every behavior change), and
   on PIO1 and DMA_CH1, so the board's WS2812 keeps PIO0 and works as on any other key
   (the touch wait shows on it); it is pinned to GPIO22 with no phy driver or pin
   override, because those can name a pad the panel owns, and a GPIO or Pimoroni LED is
-  refused at compile time. The panel's setup moved into one shared block, so the touch
-  image is a refactor, no behaviour change.
+  refused at compile time; its wire order is `rgb`, the `grb` first tried came out
+  with red and green swapped on the board. The panel's setup moved into one shared
+  block, so the touch image is a refactor, no behaviour change.
   Host tests cover the screens (wrapping, the cut-domain and cut-account marks, no
   write outside 172×320); shown on a board with webauthn.io — domain and user
   named, idle card after the timeout — and the BOOT approve is not yet.
-  **bcdDevice → 0x09DC.**
+  **bcdDevice → 0x09DD.**
 
 ## [0.4.11] - 2026-09-08
 
